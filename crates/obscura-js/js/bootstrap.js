@@ -1232,6 +1232,53 @@ globalThis.navigator = {
       clearWatch() {},
     };
   },
+  // C175: navigator.gpu (WebGPU) is present in Chrome 113+. Its absence
+  // is a detectable difference from real Chrome. Stub returns no adapter
+  // so pages can't actually use WebGPU, but the API shape matches.
+  get gpu() {
+    return {
+      requestAdapter() { return Promise.resolve(null); },
+      getPreferredCanvasFormat() { return "bgra8unorm"; },
+      wgslLanguageFeatures: new Set(),
+    };
+  },
+  // C176: remaining device APIs that Chrome exposes. Bluetooth is
+  // permission-gated (only present if Page is secure-context + not
+  // Brave/hardened), but desktop Chrome typically has them all.
+  get bluetooth() {
+    return {
+      getAvailability() { return Promise.resolve(false); },
+      getDevices() { return Promise.resolve([]); },
+      requestDevice() { return Promise.reject(new DOMException('SecurityError')); },
+      addEventListener() {}, removeEventListener() {},
+    };
+  },
+  get usb() {
+    return {
+      getDevices() { return Promise.resolve([]); },
+      requestDevice() { return Promise.reject(new DOMException('SecurityError')); },
+      addEventListener() {}, removeEventListener() {},
+    };
+  },
+  get hid() {
+    return {
+      getDevices() { return Promise.resolve([]); },
+      requestDevice() { return Promise.resolve([]); },
+      addEventListener() {}, removeEventListener() {},
+    };
+  },
+  get serial() {
+    return {
+      getPorts() { return Promise.resolve([]); },
+      requestPort() { return Promise.reject(new DOMException('SecurityError')); },
+      addEventListener() {}, removeEventListener() {},
+    };
+  },
+  get wakeLock() {
+    return {
+      request() { return Promise.reject(new DOMException('NotAllowedError')); },
+    };
+  },
   get pdfViewerEnabled() { return (_realProfile && typeof _realProfile.pdf_viewer_enabled === 'boolean') ? _realProfile.pdf_viewer_enabled : true; },
   get plugins() {
     const p = [
