@@ -1329,6 +1329,13 @@ globalThis.navigator = {
       mobile: false,
       get platform() { return uaPlatform(); },
       getHighEntropyValues(hints) {
+        // C177: instrument SBSD's UA-CH usage. Record every call so we can
+        // tell whether SBSD actually reads getHighEntropyValues or derives
+        // its brand/version/arm fields from somewhere else.
+        try {
+          globalThis.__obscura_gheV_calls = globalThis.__obscura_gheV_calls || [];
+          globalThis.__obscura_gheV_calls.push({ hints: Array.isArray(hints) ? hints : String(hints), ts: Date.now() });
+        } catch (_) {}
         const plat = uaPlatform();
         const arch = plat === "macOS" ? "arm" : "x86";
         const platVersion = plat === "macOS" ? "15.0.0" : plat === "Linux" ? "6.8.0" : "10.0.0";
