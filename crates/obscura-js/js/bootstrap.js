@@ -1308,6 +1308,20 @@ globalThis.__fetchInterceptEnabled = false;
 globalThis.__fetchInterceptCallback = null; // Set by CDP to handle paused requests
 
 globalThis.fetch = async (input, init = {}) => {
+  // C164: log ALL fetch call shapes so we can see what SBSD passes.
+  try {
+    if (!globalThis.__obscura_fetch_log) globalThis.__obscura_fetch_log = [];
+    if (globalThis.__obscura_fetch_log.length < 40) {
+      globalThis.__obscura_fetch_log.push({
+        inputType: (typeof input) + (input && input.constructor ? ':' + input.constructor.name : ''),
+        inputStr: (function(){ try { return String(input).slice(0, 100); } catch (_) { return '??'; } })(),
+        inputHref: (input && typeof input.href === 'string') ? input.href.slice(0, 100) : null,
+        inputUrl: (input && typeof input.url === 'string') ? input.url.slice(0, 100) : null,
+        method: init.method || 'GET',
+        ts: Date.now(),
+      });
+    }
+  } catch (_) {}
   // C162: extract URL from every input shape Chrome fetch() accepts:
   //   fetch(string) / fetch(Request) / fetch(URL) / fetch(objWithToString).
   // Previous logic only checked .url (Request) and fell through to "" for
@@ -1448,8 +1462,27 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
   }
 
   open(method, url, async_) {
+    // C164: log every XHR.open so we can see SBSD's URL patterns.
+    try {
+      if (!globalThis.__obscura_xhr_log) globalThis.__obscura_xhr_log = [];
+      if (globalThis.__obscura_xhr_log.length < 40) {
+        globalThis.__obscura_xhr_log.push({
+          method: String(method || ''),
+          urlType: (typeof url) + (url && url.constructor ? ':' + url.constructor.name : ''),
+          urlStr: (function(){ try { return String(url).slice(0, 150); } catch (_) { return '??'; } })(),
+          urlHref: (url && typeof url.href === 'string') ? url.href.slice(0, 150) : null,
+          ts: Date.now(),
+        });
+      }
+    } catch (_) {}
     this._method = method;
-    this._url = url;
+    // Coerce URL object / duck-typed inputs to a string so relative-URL
+    // resolution in send() has something usable.
+    let urlStr = "";
+    if (typeof url === "string") urlStr = url;
+    else if (url && typeof url.href === "string") urlStr = url.href;
+    else if (url != null) { try { urlStr = String(url); } catch (_) { urlStr = ""; } }
+    this._url = urlStr;
     this._headers = {};
     this._responseHeaders = {};
     this._aborted = false;
@@ -1488,10 +1521,14 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
     this._fireEvent('loadstart');
 
     let url = this._url;
-    if (url && !url.includes('://')) {
+    // C164: resolve empty + relative URLs against page base (same semantics
+    // as the fetch path). Previously empty URLs skipped resolution and
+    // reached op_fetch_url with "" — op rejected with 'relative URL without
+    // a base' and SBSD's POST never hit the wire.
+    if (!url || !url.includes('://')) {
       try {
         const base = _domParse("document_url") || "about:blank";
-        url = new URL(url, base).href;
+        url = new URL(url || "/", base).href;
       } catch(e) {}
     }
 
