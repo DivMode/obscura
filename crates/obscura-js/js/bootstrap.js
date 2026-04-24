@@ -81,6 +81,16 @@ try {
   const raw = Deno.core.ops.op_get_profile_json();
   if (raw && raw.length > 0) {
     _realProfile = JSON.parse(raw);
+    // Wire the profile's user-agent into `globalThis.__obscura_ua` so the
+    // existing navigator.userAgent getter (already set up to prefer that
+    // global) returns the real Chrome UA. Same for timezone. Other fields
+    // are read through `_getFp()` / `_fpCache` below.
+    if (_realProfile.user_agent && !globalThis.__obscura_ua) {
+      globalThis.__obscura_ua = _realProfile.user_agent;
+    }
+    if (_realProfile.timezone_name && !globalThis.__obscura_tz) {
+      globalThis.__obscura_tz = _realProfile.timezone_name;
+    }
   }
 } catch (_e) {}
 
@@ -1100,17 +1110,23 @@ globalThis.navigator = {
   // So navigator.userAgent + platform must also claim Windows, else Akamai / any
   // other anti-bot can instantly reject on UA/WebGL mismatch. Overridable via
   // globalThis.__obscura_ua (the override must also be coherent with WebGL).
-  get userAgent() { return globalThis.__obscura_ua || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"; },
+  get userAgent() { return globalThis.__obscura_ua || (_realProfile && _realProfile.user_agent) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"; },
   get appVersion() { return this.userAgent.replace('Mozilla/', ''); },
-  language: "en-US", languages: ["en-US","en"], platform: "Win32",
-  onLine: true, cookieEnabled: true, hardwareConcurrency: 8,
-  maxTouchPoints: 0,
-  vendor: "Google Inc.", product: "Gecko", productSub: "20030107",
+  get language() { return (_realProfile && _realProfile.language) || "en-US"; },
+  get languages() { return (_realProfile && _realProfile.languages) || ["en-US","en"]; },
+  get platform() { return (_realProfile && _realProfile.platform) || "Win32"; },
+  onLine: true,
+  get cookieEnabled() { return (_realProfile && typeof _realProfile.cookie_enabled === 'boolean') ? _realProfile.cookie_enabled : true; },
+  get hardwareConcurrency() { return (_realProfile && _realProfile.hardware_concurrency) || 8; },
+  get maxTouchPoints() { return (_realProfile && _realProfile.max_touch_points) ?? 0; },
+  get vendor() { return (_realProfile && _realProfile.vendor) || "Google Inc."; },
+  get product() { return (_realProfile && _realProfile.product) || "Gecko"; },
+  get productSub() { return (_realProfile && _realProfile.product_sub) || "20030107"; },
   doNotTrack: null,
-  deviceMemory: 8,
+  get deviceMemory() { return (_realProfile && _realProfile.device_memory) || 8; },
   connection: { effectiveType: "4g", rtt: 50, downlink: 10, saveData: false },
   get webdriver() { return undefined; },
-  pdfViewerEnabled: true,
+  get pdfViewerEnabled() { return (_realProfile && typeof _realProfile.pdf_viewer_enabled === 'boolean') ? _realProfile.pdf_viewer_enabled : true; },
   get plugins() {
     const p = [
       { name: "PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format", length: 1 },
@@ -1197,7 +1213,16 @@ globalThis.Notification = class Notification {
 globalThis.WebGLRenderingContext = class WebGLRenderingContext {};
 globalThis.WebGL2RenderingContext = class WebGL2RenderingContext {};
 
-globalThis.screen = { width:1920, height:1080, availWidth:1920, availHeight:1040, colorDepth:24, pixelDepth:24, availTop:0, availLeft:0, orientation:{type:"landscape-primary",angle:0,addEventListener(){},removeEventListener(){},dispatchEvent(){return true;}} };
+globalThis.screen = _realProfile ? {
+  width: _realProfile.screen_width || 1920,
+  height: _realProfile.screen_height || 1080,
+  availWidth: _realProfile.avail_width || 1920,
+  availHeight: _realProfile.avail_height || 1040,
+  colorDepth: _realProfile.color_depth || 24,
+  pixelDepth: _realProfile.pixel_depth || 24,
+  availTop: 0, availLeft: 0,
+  orientation: { type: "landscape-primary", angle: 0, addEventListener(){}, removeEventListener(){}, dispatchEvent(){return true;} }
+} : { width:1920, height:1080, availWidth:1920, availHeight:1040, colorDepth:24, pixelDepth:24, availTop:0, availLeft:0, orientation:{type:"landscape-primary",angle:0,addEventListener(){},removeEventListener(){},dispatchEvent(){return true;}} };
 globalThis.visualViewport = { width:1920, height:1000, offsetLeft:0, offsetTop:0, scale:1, addEventListener(){}, removeEventListener(){} };
 globalThis.devicePixelRatio = 1;
 globalThis.innerWidth = 1920; globalThis.innerHeight = 1000;
