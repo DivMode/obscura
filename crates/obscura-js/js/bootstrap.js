@@ -2312,6 +2312,66 @@ globalThis.Document = Document;
 globalThis.EventTarget = Node;
 globalThis.Range = class Range { setStart(){} setEnd(){} collapse(){} selectNodeContents(){} deleteContents(){} cloneContents(){ return document.createDocumentFragment(); } insertNode(){} getBoundingClientRect(){return {x:0,y:0,width:0,height:0,top:0,right:0,bottom:0,left:0};} };
 
+// C173: 40 missing Chrome globals that SBSD's fingerprint probes touch
+// via `typeof X === 'function'` and `X.prototype`. Missing any one of
+// these causes a TypeError that aborts the probe chain and skips the
+// corresponding fields in the Type B plaintext.
+// Discovered via globals probe in sbsd_obscura_post: these are the exact
+// set of classes SBSD's code references that were undefined in Obscura.
+class _NoOpClass {}
+// File APIs
+globalThis.FileList = class FileList extends _NoOpClass { get length(){return 0;} item(){return null;} };
+// Streams
+globalThis.TextEncoderStream = class TextEncoderStream extends _NoOpClass { constructor(){super(); this.readable = {}; this.writable = {};} };
+globalThis.TextDecoderStream = class TextDecoderStream extends _NoOpClass { constructor(){super(); this.readable = {}; this.writable = {};} };
+globalThis.CompressionStream = class CompressionStream extends _NoOpClass { constructor(){super(); this.readable = {}; this.writable = {};} };
+globalThis.DecompressionStream = class DecompressionStream extends _NoOpClass { constructor(){super(); this.readable = {}; this.writable = {};} };
+// Notification / Push
+globalThis.PushManager = class PushManager extends _NoOpClass { subscribe(){return Promise.reject(new Error('no push'));} getSubscription(){return Promise.resolve(null);} permissionState(){return Promise.resolve('denied');} };
+// Reporting
+globalThis.ReportingObserver = class ReportingObserver extends _NoOpClass { observe(){} disconnect(){} takeRecords(){return [];} };
+// IndexedDB
+globalThis.IDBDatabase = class IDBDatabase extends _NoOpClass { close(){} createObjectStore(){return new globalThis.IDBObjectStore();} deleteObjectStore(){} transaction(){return new globalThis.IDBTransaction();} };
+globalThis.IDBFactory = class IDBFactory extends _NoOpClass { open(){const r={onsuccess:null,onerror:null,result:new globalThis.IDBDatabase()}; return r;} deleteDatabase(){} databases(){return Promise.resolve([]);} };
+globalThis.IDBTransaction = class IDBTransaction extends _NoOpClass { objectStore(){return new globalThis.IDBObjectStore();} abort(){} commit(){} };
+globalThis.IDBObjectStore = class IDBObjectStore extends _NoOpClass { add(){} put(){} get(){} delete(){} clear(){} createIndex(){return new globalThis.IDBIndex();} index(){return new globalThis.IDBIndex();} };
+globalThis.IDBIndex = class IDBIndex extends _NoOpClass { get(){} getAll(){} openCursor(){} };
+// RTC
+globalThis.RTCDataChannel = class RTCDataChannel extends _NoOpClass { send(){} close(){} };
+// Clipboard
+globalThis.Clipboard = class Clipboard extends _NoOpClass { readText(){return Promise.reject(new Error('no clipboard'));} writeText(){return Promise.reject(new Error('no clipboard'));} read(){return Promise.reject(new Error('no clipboard'));} write(){return Promise.reject(new Error('no clipboard'));} };
+globalThis.ClipboardItem = class ClipboardItem extends _NoOpClass { constructor(){super();} getType(){return Promise.reject(new Error('no clipboard'));} };
+// Credentials / Payment
+globalThis.CredentialsContainer = class CredentialsContainer extends _NoOpClass { get(){return Promise.resolve(null);} store(){return Promise.resolve();} create(){return Promise.resolve(null);} preventSilentAccess(){return Promise.resolve();} };
+globalThis.PaymentRequest = class PaymentRequest extends _NoOpClass { show(){return Promise.reject(new Error('no payment'));} abort(){return Promise.resolve();} canMakePayment(){return Promise.resolve(false);} };
+globalThis.PaymentResponse = class PaymentResponse extends _NoOpClass { complete(){return Promise.resolve();} retry(){return Promise.resolve();} };
+// WebGL resource classes (SBSD uses these for webgl-context fingerprinting)
+globalThis.WebGLQuery = class WebGLQuery extends _NoOpClass {};
+globalThis.WebGLSampler = class WebGLSampler extends _NoOpClass {};
+globalThis.WebGLTexture = class WebGLTexture extends _NoOpClass {};
+globalThis.WebGLBuffer = class WebGLBuffer extends _NoOpClass {};
+globalThis.WebGLProgram = class WebGLProgram extends _NoOpClass {};
+globalThis.WebGLShader = class WebGLShader extends _NoOpClass {};
+// Web Audio nodes (SBSD uses these for audio-context fingerprinting)
+globalThis.AudioBuffer = class AudioBuffer extends _NoOpClass { get length(){return 0;} get duration(){return 0;} get sampleRate(){return 44100;} get numberOfChannels(){return 1;} getChannelData(){return new Float32Array(0);} copyFromChannel(){} copyToChannel(){} };
+globalThis.AudioBufferSourceNode = class AudioBufferSourceNode extends _NoOpClass { start(){} stop(){} connect(){} disconnect(){} };
+globalThis.OscillatorNode = class OscillatorNode extends _NoOpClass { start(){} stop(){} connect(){} disconnect(){} };
+globalThis.BiquadFilterNode = class BiquadFilterNode extends _NoOpClass { getFrequencyResponse(){} connect(){} disconnect(){} };
+globalThis.AnalyserNode = class AnalyserNode extends _NoOpClass { getByteTimeDomainData(){} getByteFrequencyData(){} getFloatFrequencyData(){} getFloatTimeDomainData(){} connect(){} disconnect(){} };
+globalThis.GainNode = class GainNode extends _NoOpClass { connect(){} disconnect(){} };
+globalThis.DynamicsCompressorNode = class DynamicsCompressorNode extends _NoOpClass { connect(){} disconnect(){} };
+globalThis.ConvolverNode = class ConvolverNode extends _NoOpClass { connect(){} disconnect(){} };
+globalThis.DelayNode = class DelayNode extends _NoOpClass { connect(){} disconnect(){} };
+// Touch / Drag events (profile is macOS with maxTouchPoints=0 but SBSD still probes)
+globalThis.TouchEvent = class TouchEvent extends _NoOpClass { constructor(){super();} };
+globalThis.DragEvent = class DragEvent extends _NoOpClass { constructor(){super();} };
+// Crypto
+globalThis.SubtleCrypto = class SubtleCrypto extends _NoOpClass { encrypt(){return Promise.reject();} decrypt(){return Promise.reject();} sign(){return Promise.reject();} verify(){return Promise.reject();} digest(){return Promise.reject();} generateKey(){return Promise.reject();} deriveKey(){return Promise.reject();} deriveBits(){return Promise.reject();} importKey(){return Promise.reject();} exportKey(){return Promise.reject();} wrapKey(){return Promise.reject();} unwrapKey(){return Promise.reject();} };
+globalThis.CryptoKey = class CryptoKey extends _NoOpClass {};
+// DOM errors
+globalThis.DOMError = class DOMError extends Error { constructor(name, message){super(message); this.name = name || 'Error';} };
+globalThis.DOMException = class DOMException extends Error { constructor(message, name){super(message); this.name = name || 'Error'; this.code = 0;} };
+
 [
   navigator.getBattery, navigator.getGamepads, navigator.sendBeacon,
   navigator.javaEnabled, navigator.serviceWorker?.register,
