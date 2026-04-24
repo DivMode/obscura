@@ -17,9 +17,11 @@ use crate::cookies::CookieJar;
 #[cfg(feature = "stealth")]
 use crate::client::{Response, ObscuraNetError};
 
+// C178: macOS UA matches profile pool + EmulationOS::MacOS above.
+// Mismatched UA + Sec-CH-UA-Platform = instant SBSD rejection.
 #[cfg(feature = "stealth")]
 pub const STEALTH_USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 #[cfg(feature = "stealth")]
 pub struct StealthHttpClient {
@@ -36,14 +38,19 @@ impl StealthHttpClient {
     }
 
     pub fn with_proxy(cookie_jar: Arc<CookieJar>, proxy_url: Option<&str>) -> Self {
-        let cert_store = wreq::tls::CertStore::builder()
-            .set_default_paths()
-            .build()
-            .expect("Failed to load system CA certificates");
+        // CertStore::default() uses webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        // when wreq's `webpki-roots` feature is enabled (it is by default).
+        // `.set_default_paths()` only works where OpenSSL has populated paths
+        // (Linux), and returns an empty store on macOS → CERTIFICATE_VERIFY_FAILED.
+        let cert_store = wreq::tls::CertStore::default();
 
+        // C178: Emulation OS must match navigator.platform + the active
+        // profile. profiles/browser_profiles.json is 10× macOS — sending
+        // Sec-CH-UA-Platform: "Windows" with navigator.platform "MacIntel"
+        // is an instant Akamai SBSD fingerprint rejection. Switched to MacOS.
         let emulation_opts = wreq_util::EmulationOption::builder()
             .emulation(wreq_util::Emulation::Chrome145)
-            .emulation_os(wreq_util::EmulationOS::Linux)
+            .emulation_os(wreq_util::EmulationOS::MacOS)
             .build();
 
         let mut builder = wreq::Client::builder()
