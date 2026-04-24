@@ -2498,6 +2498,23 @@ Element.prototype.getContext = function getContext(type) {
   return null;
 };
 Element.prototype.toDataURL = function(type) {
+  // When a real Chrome profile is loaded, always return its captured
+  // canvas_to_data_url regardless of what was drawn. SBSD's fingerprint
+  // probe draws a deterministic pattern (text + shapes) and toDataURLs
+  // it; the profile's value is the real Chrome 145 response to that
+  // same probe. Returning a synthetic hash-based URL (what this code
+  // did before) gives SBSD a canvas fingerprint that doesn't match any
+  // legitimate Chrome signature, so Akamai's content validation
+  // rejects the POST.
+  //
+  // C157: root of D2 bucket-b canvas gap — Obscura had been generating
+  // different canvas bytes per session despite the profile injection,
+  // because this function short-circuited around _fp() whenever any
+  // drawing had happened.
+  if (_realProfile && _realProfile.canvas_to_data_url) {
+    return _realProfile.canvas_to_data_url;
+  }
+  // Fallback path: no profile loaded (tests, exploratory work).
   if (this._ctx && this._ctx._buf) {
     const ctx = this._ctx;
     const w = ctx._w, h = ctx._h, buf = ctx._buf;
