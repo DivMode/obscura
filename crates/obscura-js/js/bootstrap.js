@@ -111,23 +111,45 @@ function _fpNoise(x, y, channel) {
 // webgl / audio / screen values don't match Akamai's legitimate-Chrome
 // patterns, so content validation rejects the POST. See op_get_profile_json
 // for how the host passes the profile in.
-var _realProfile = null;
-try {
-  const raw = Deno.core.ops.op_get_profile_json();
-  if (raw && raw.length > 0) {
-    _realProfile = JSON.parse(raw);
-    // Wire the profile's user-agent into `globalThis.__obscura_ua` so the
-    // existing navigator.userAgent getter (already set up to prefer that
-    // global) returns the real Chrome UA. Same for timezone. Other fields
-    // are read through `_getFp()` / `_fpCache` below.
-    if (_realProfile.user_agent && !globalThis.__obscura_ua) {
-      globalThis.__obscura_ua = _realProfile.user_agent;
+// C168 CRITICAL: profile load MUST be lazy. deno_core snapshots bootstrap.js
+// at build time, and the `var _realProfile = ...` initializer runs at
+// snapshot time when OBSCURA_PROFILE_JSON env var isn't set yet. The op
+// DOES work at runtime (returns 39K+ chars) but _realProfile stays null
+// because the initializer already ran and cached null. All downstream
+// profile-backed stubs (navigator.userAgent, _fpCache canvas, WebGL params,
+// audio fingerprint) have been silently falling back to synthetic
+// Windows-Chrome defaults.
+//
+// Fix: replace the eager `var _realProfile` with a lazy accessor. Every
+// downstream reference to `_realProfile` is really `_realProfile()`, so
+// the op is invoked per access (fast — it's a single env-var read in Rust).
+let _realProfileCache = undefined;  // tri-state: undefined=not loaded, null=no profile, object=loaded
+function _loadRealProfile() {
+  try {
+    const raw = Deno.core.ops.op_get_profile_json();
+    _realProfileCache = (raw && raw.length > 0) ? JSON.parse(raw) : null;
+    if (_realProfileCache) {
+      if (_realProfileCache.user_agent && !globalThis.__obscura_ua) {
+        globalThis.__obscura_ua = _realProfileCache.user_agent;
+      }
+      if (_realProfileCache.timezone_name && !globalThis.__obscura_tz) {
+        globalThis.__obscura_tz = _realProfileCache.timezone_name;
+      }
     }
-    if (_realProfile.timezone_name && !globalThis.__obscura_tz) {
-      globalThis.__obscura_tz = _realProfile.timezone_name;
-    }
-  }
-} catch (_e) {}
+  } catch (_e) { _realProfileCache = null; }
+  return _realProfileCache;
+}
+// `_realProfile` keeps the original name so every existing reference
+// (`_realProfile && _realProfile.foo`, `_realProfile.user_agent`) works
+// unchanged. Implement it as a getter on globalThis that triggers the
+// lazy load and caches the result.
+Object.defineProperty(globalThis, '_realProfile', {
+  get() {
+    if (_realProfileCache === undefined) _loadRealProfile();
+    return _realProfileCache;
+  },
+  configurable: true,
+});
 
 var _fpCache = null;
 function _getFp() {
