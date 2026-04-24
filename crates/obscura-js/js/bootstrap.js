@@ -2658,8 +2658,43 @@ globalThis.AudioContext = class AudioContext {
   close() { this.state='closed'; return Promise.resolve(); }
 };
 globalThis.OfflineAudioContext = class OfflineAudioContext extends AudioContext {
-  constructor(ch,len,rate) { super(); this.length=len||44100; }
-  startRendering() { return Promise.resolve(this.createBuffer(2,this.length,44100)); }
+  constructor(ch,len,rate) { super(); this.length=len||44100; this._channels = ch||2; }
+  startRendering() {
+    // C159: SBSD's audio fingerprint probe does
+    //   new OfflineAudioContext(1, 44100, 44100)
+    //     .createDynamicsCompressor() + oscillator.start() + startRendering()
+    //     .then(buf => sum(buf.getChannelData(0).slice(4500, 5000)))
+    // The profile captured that resulting sum as `audio_fingerprint`. Emit
+    // a buffer whose [4500..5000) window sums to exactly that value so the
+    // fingerprint matches real Chrome.
+    const targetFp = (_realProfile && typeof _realProfile.audio_fingerprint === 'number')
+      ? _realProfile.audio_fingerprint
+      : 0;
+    const ch = this._channels;
+    const len = this.length;
+    const perSample = len >= 5000 ? (targetFp / 500) : (targetFp / Math.max(1, len));
+    const self = this;
+    return Promise.resolve({
+      length: len,
+      sampleRate: 44100,
+      numberOfChannels: ch,
+      duration: len / 44100,
+      getChannelData(c) {
+        const a = new Float32Array(len);
+        if (c === 0 && len >= 5000) {
+          // Fill the 4500..5000 window so sum matches targetFp.
+          for (let i = 4500; i < 5000; i++) a[i] = perSample;
+        } else if (c === 0) {
+          for (let i = 0; i < len; i++) a[i] = perSample;
+        }
+        return a;
+      },
+      copyFromChannel(dst, c) {
+        const src = this.getChannelData(c);
+        for (let i = 0; i < Math.min(dst.length, src.length); i++) dst[i] = src[i];
+      },
+    });
+  }
 };
 globalThis.webkitAudioContext = globalThis.AudioContext;
 
