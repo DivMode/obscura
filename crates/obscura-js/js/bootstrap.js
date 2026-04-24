@@ -167,21 +167,24 @@ globalThis.setTimeout = (fn, delay = 0, ...args) => {
 
 globalThis.clearTimeout = (id) => { _clearedTimers.add(id); };
 
-// setInterval must repeat — the previous implementation forwarded to
-// setTimeout once and returned, so every caller got a one-shot instead of a
-// periodic tick. Recreate proper periodic behavior with a self-rescheduling
-// loop keyed on clearInterval via the shared `_clearedTimers` set.
+// setInterval must repeat. Prior implementation forwarded to setTimeout
+// once and returned, so every caller got a one-shot. A naive async-IIFE
+// loop (`(async () => { while(!cleared) { await _sleep(d); fn(); } })()`)
+// also doesn't tick under deno_core — the top-level promise is detached
+// and never driven. Use explicit setTimeout recursion, which is
+// guaranteed to work because setTimeout itself is driven via the
+// Deno.core.ops.op_sleep_ms async op.
 globalThis.setInterval = (fn, delay, ...args) => {
   if (typeof fn !== "function") return ++_tid;
   const id = ++_tid;
-  (async () => {
-    const d = delay | 0;
-    while (!_clearedTimers.has(id)) {
-      await _sleep(d);
-      if (_clearedTimers.has(id)) return;
-      try { fn(...args); } catch(e) { console.error("Interval error:", e); }
-    }
-  })();
+  const d = delay | 0;
+  const tick = () => {
+    if (_clearedTimers.has(id)) return;
+    try { fn(...args); } catch(e) { console.error("Interval error:", e); }
+    if (_clearedTimers.has(id)) return;
+    globalThis.setTimeout(tick, d);
+  };
+  globalThis.setTimeout(tick, d);
   return id;
 };
 globalThis.clearInterval = globalThis.clearTimeout;
