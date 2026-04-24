@@ -33,6 +33,7 @@ pub struct InterceptedRequest {
     pub url: String,
     pub method: String,
     pub headers: HashMap<String, String>,
+    pub body: String,
     pub resource_type: String,
     pub resolver: tokio::sync::oneshot::Sender<InterceptResolution>,
 }
@@ -346,6 +347,7 @@ async fn op_fetch_url(
             url: url.clone(),
             method: method.clone(),
             headers: custom_headers.clone(),
+            body: body.clone(),
             resource_type: "Fetch".to_string(),
             resolver: resolve_tx,
         };
@@ -638,6 +640,20 @@ fn op_navigate(state: &OpState, #[string] url: &str, #[string] method: &str, #[s
     gs.pending_navigation = Some((url.to_string(), method.to_string(), body.to_string()));
 }
 
+// Real wallclock-backed sleep. Obscura's JS environment previously faked
+// setTimeout via Promise.resolve().then(), which ignores the delay argument
+// entirely and fires on the next microtask. That broke any SBSD / Akamai
+// script that scheduled work on a real-time cadence (every-3s heartbeat,
+// delayed full-fingerprint POST, etc.). The symptom in C153 was Obscura
+// firing Type A sensor POSTs every ~300ms while real Chrome fires them every
+// ~3s, and Obscura never firing the Type B "full fingerprint" POST at all.
+#[op2(async)]
+async fn op_sleep_ms(ms: u32) {
+    if ms > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
+    }
+}
+
 pub fn build_extension() -> Extension {
     Extension {
         name: "obscura_dom",
@@ -648,6 +664,7 @@ pub fn build_extension() -> Extension {
             op_get_cookies(),
             op_set_cookie(),
             op_navigate(),
+            op_sleep_ms(),
         ]),
         ..Default::default()
     }

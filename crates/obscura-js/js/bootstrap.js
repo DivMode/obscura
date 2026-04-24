@@ -146,28 +146,49 @@ globalThis.console = {
 };
 
 let _tid = 0;
-const _pendingTimers = new Map();
 const _clearedTimers = new Set();
+const _sleep = (ms) => Deno.core.ops.op_sleep_ms(ms | 0);
 
+// setTimeout that actually respects the delay. Previously this ignored the
+// delay entirely (Promise.resolve().then → next microtask). Scripts that
+// schedule work on a real-time cadence (SBSD/Akamai sensor heartbeat + full-
+// fingerprint POST, any setInterval polling, requestAnimationFrame chain)
+// were firing ~100x faster than Chrome's real cadence, breaking the Akamai
+// sensor protocol's Type A/B alternation.
 globalThis.setTimeout = (fn, delay = 0, ...args) => {
   if (typeof fn !== "function") return ++_tid;
   const id = ++_tid;
-  _pendingTimers.set(id, { fn, args, delay });
-  Promise.resolve().then(() => {
-    if (!_clearedTimers.has(id) && _pendingTimers.has(id)) {
-      _pendingTimers.delete(id);
-      try { fn(...args); } catch(e) { console.error("Timer error:", e); }
-    }
+  _sleep(delay | 0).then(() => {
+    if (_clearedTimers.has(id)) return;
+    try { fn(...args); } catch(e) { console.error("Timer error:", e); }
   });
   return id;
 };
 
-globalThis.clearTimeout = (id) => { _clearedTimers.add(id); _pendingTimers.delete(id); };
+globalThis.clearTimeout = (id) => { _clearedTimers.add(id); };
+
+// setInterval must repeat — the previous implementation forwarded to
+// setTimeout once and returned, so every caller got a one-shot instead of a
+// periodic tick. Recreate proper periodic behavior with a self-rescheduling
+// loop keyed on clearInterval via the shared `_clearedTimers` set.
 globalThis.setInterval = (fn, delay, ...args) => {
-  return setTimeout(fn, delay, ...args);
+  if (typeof fn !== "function") return ++_tid;
+  const id = ++_tid;
+  (async () => {
+    const d = delay | 0;
+    while (!_clearedTimers.has(id)) {
+      await _sleep(d);
+      if (_clearedTimers.has(id)) return;
+      try { fn(...args); } catch(e) { console.error("Interval error:", e); }
+    }
+  })();
+  return id;
 };
 globalThis.clearInterval = globalThis.clearTimeout;
-globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+
+// requestAnimationFrame at ~60fps — matches real Chrome's vsync cadence so
+// scripts that rAF-loop to accumulate state progress at the expected rate.
+globalThis.requestAnimationFrame = (fn) => globalThis.setTimeout(fn, 16);
 globalThis.cancelAnimationFrame = globalThis.clearTimeout;
 globalThis.queueMicrotask = globalThis.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
@@ -671,7 +692,18 @@ class Element extends Node {
   }
   get offsetWidth() { return 100; } get offsetHeight() { return 20; }
   get offsetTop() { return 0; } get offsetLeft() { return 0; }
-  get clientWidth() { return 100; } get clientHeight() { return 20; }
+  // Akamai probes document.documentElement.clientWidth — returning a hardcoded
+  // 100 is a bot tell. Use globalThis.innerWidth/innerHeight when this element
+  // *appears to be* the documentElement (tagName === 'HTML'). Falls back to 100
+  // for other elements where we don't actually compute layout.
+  get clientWidth() {
+    try { if (this.tagName === 'HTML') return globalThis.innerWidth | 0; } catch(e) {}
+    return 100;
+  }
+  get clientHeight() {
+    try { if (this.tagName === 'HTML') return globalThis.innerHeight | 0; } catch(e) {}
+    return 20;
+  }
   get scrollWidth() { return 100; } get scrollHeight() { return 20; }
   get scrollTop() { return 0; } set scrollTop(v) {}
   get scrollLeft() { return 0; } set scrollLeft(v) {}
@@ -1005,9 +1037,13 @@ function _registerIframe(iframeEl) {
   });
 }
 globalThis.navigator = {
-  get userAgent() { return globalThis.__obscura_ua || "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"; },
+  // UA coherence: WebGL pool in this file returns ANGLE+D3D11 renderers (Windows).
+  // So navigator.userAgent + platform must also claim Windows, else Akamai / any
+  // other anti-bot can instantly reject on UA/WebGL mismatch. Overridable via
+  // globalThis.__obscura_ua (the override must also be coherent with WebGL).
+  get userAgent() { return globalThis.__obscura_ua || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"; },
   get appVersion() { return this.userAgent.replace('Mozilla/', ''); },
-  language: "en-US", languages: ["en-US","en"], platform: "Linux x86_64",
+  language: "en-US", languages: ["en-US","en"], platform: "Win32",
   onLine: true, cookieEnabled: true, hardwareConcurrency: 8,
   maxTouchPoints: 0,
   vendor: "Google Inc.", product: "Gecko", productSub: "20030107",
@@ -1045,7 +1081,7 @@ globalThis.navigator = {
       {brand: "Not=A?Brand", version: "24"},
     ],
     mobile: false,
-    platform: "Linux",
+    platform: "Windows",
     getHighEntropyValues(hints) {
       return Promise.resolve({
         architecture: "x86",
@@ -2502,10 +2538,14 @@ _markNative(MediaStream); _markNative(MediaStreamTrack);
 _markNative(RTCPeerConnection); _markNative(RTCSessionDescription); _markNative(RTCIceCandidate);
 
 const _OrigDateTimeFormat = Intl.DateTimeFormat;
-const _defaultTZ = 'America/New_York';
+// Overridable via globalThis.__obscura_tz. Keep America/New_York as default
+// because it's a high-population US tz that matches `Accept-Language: en-US`;
+// Akamai correlates Intl.tz with Date().getTimezoneOffset(), so the caller
+// should set __obscura_tz to a zone whose offset matches the container's
+// local clock.
 Intl.DateTimeFormat = function(locales, options) {
   if (!options) options = {};
-  if (!options.timeZone) options.timeZone = _defaultTZ;
+  if (!options.timeZone) options.timeZone = globalThis.__obscura_tz || 'America/New_York';
   return new _OrigDateTimeFormat(locales, options);
 };
 Intl.DateTimeFormat.prototype = _OrigDateTimeFormat.prototype;
@@ -2513,7 +2553,7 @@ Intl.DateTimeFormat.supportedLocalesOf = _OrigDateTimeFormat.supportedLocalesOf;
 const _origResolved = _OrigDateTimeFormat.prototype.resolvedOptions;
 _OrigDateTimeFormat.prototype.resolvedOptions = function() {
   const r = _origResolved.call(this);
-  if (r.timeZone === 'UTC') r.timeZone = _defaultTZ;
+  if (r.timeZone === 'UTC') r.timeZone = globalThis.__obscura_tz || 'America/New_York';
   return r;
 };
 
@@ -2877,6 +2917,22 @@ if (typeof SharedWorker === 'undefined') {
 }
 if (typeof ServiceWorkerContainer === 'undefined') {
   globalThis.ServiceWorkerContainer = class { register(){return Promise.resolve();} getRegistrations(){return Promise.resolve([]);} };
+}
+// Real Chrome exposes all three ServiceWorker* constructors on window.
+// SBSD sensor scripts probe `typeof qR["ServiceWorker"] === 'function'` —
+// returning undefined here is a distinct bot signal.
+if (typeof ServiceWorker === 'undefined') {
+  globalThis.ServiceWorker = class ServiceWorker extends EventTarget {
+    constructor() { super(); this.state = 'activated'; this.scriptURL = ''; }
+    postMessage() {}
+  };
+}
+if (typeof ServiceWorkerRegistration === 'undefined') {
+  globalThis.ServiceWorkerRegistration = class ServiceWorkerRegistration extends EventTarget {
+    constructor() { super(); this.scope = ''; this.active = null; this.installing = null; this.waiting = null; }
+    unregister() { return Promise.resolve(false); }
+    update() { return Promise.resolve(); }
+  };
 }
 
 if (typeof URLPattern === 'undefined') {
