@@ -131,10 +131,15 @@ function _loadRealProfile() {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         _realProfileCache = parsed;  // cache ONLY on success
-        if (parsed.user_agent && !globalThis.__obscura_ua) {
+        // Profile ALWAYS wins over earlier-set globals. The stealth http
+        // client at obscura-net sets __obscura_ua to a hardcoded Windows
+        // Chrome/145 UA during page init — profile's macOS UA must
+        // replace that so navigator.userAgent stays coherent with
+        // navigator.platform ('MacIntel' from profile).
+        if (parsed.user_agent) {
           globalThis.__obscura_ua = parsed.user_agent;
         }
-        if (parsed.timezone_name && !globalThis.__obscura_tz) {
+        if (parsed.timezone_name) {
           globalThis.__obscura_tz = parsed.timezone_name;
         }
       }
