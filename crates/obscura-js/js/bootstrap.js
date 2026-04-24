@@ -1375,6 +1375,13 @@ globalThis.fetch = async (input, init = {}) => {
   const body = init.body ? String(init.body) : "";
   const fetchMode = init.mode || (input instanceof Request ? input.mode : "cors");
   const pageOrigin = (function() { try { const u = new URL(_domParse("document_url") || "about:blank"); return u.origin; } catch(e) { return ""; } })();
+  // C165: remember the last /cGaYLwcE1N7t/ (legacy SBSD) fetch URL so the
+  // subsequent empty-URL POST for the legacy body can be routed there.
+  // Chrome captures show SBSD POSTs the legacy body to the SAME URL as the
+  // GET that served the legacy script, with `?t=TIMESTAMP` appended.
+  if (url.indexOf('cGaYLwcE1N7t') !== -1 || url.indexOf('/cG') !== -1) {
+    try { globalThis.__obscura_legacy_script_url = url; } catch (_) {}
+  }
   const raw = await Deno.core.ops.op_fetch_url(url, method, hdrs, body, pageOrigin, fetchMode);
   const parsed = JSON.parse(raw);
   if (parsed.blocked) {
@@ -1521,6 +1528,22 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
     this._fireEvent('loadstart');
 
     let url = this._url;
+    // C165: if SBSD opens XHR with an empty URL AND the body looks like the
+    // legacy SBSD body envelope (`{"body":"..."}`), route to the legacy
+    // script URL we remembered earlier (the one our fetch() just served for
+    // /cGaYLwcE1N7t/…). Chrome captures show the legacy-body POST goes to
+    // the SAME URL as the GET that loaded the legacy script, with a
+    // `?t=TIMESTAMP` query param. SBSD in Obscura uses an empty URL here
+    // probably because its script-URL discovery relies on a DOM API we
+    // haven't wired up yet; this heuristic is narrower than a full fix but
+    // unblocks the protocol-level path.
+    if ((!url || url === "" || url === "about:blank") && this._method === "POST") {
+      const bodyStr = (typeof body === "string") ? body : (body ? String(body) : "");
+      if (bodyStr.startsWith('{"body":"') && globalThis.__obscura_legacy_script_url) {
+        const legacyUrl = globalThis.__obscura_legacy_script_url;
+        url = legacyUrl + (legacyUrl.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now();
+      }
+    }
     // C164: resolve empty + relative URLs against page base (same semantics
     // as the fetch path). Previously empty URLs skipped resolution and
     // reached op_fetch_url with "" — op rejected with 'relative URL without
