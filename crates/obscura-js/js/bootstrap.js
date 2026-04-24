@@ -2460,22 +2460,60 @@ Element.prototype.getContext = function getContext(type) {
     return this._ctx;
   }
   if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+    // C158: route every WebGL getParameter / getSupportedExtensions /
+    // shading-version through the loaded real-Chrome profile. Previously
+    // most params returned 0 and the extension list was hardcoded to 4
+    // entries — SBSD samples many more (MAX_TEXTURE_SIZE, MAX_VIEWPORT_DIMS,
+    // RED_BITS, GREEN_BITS, ...) and a 0 there is a dead fingerprint giveaway.
+    const _wp = (_realProfile && _realProfile.webgl_params) || {};
+    const _wext = (_realProfile && _realProfile.webgl_extensions) || ['WEBGL_debug_renderer_info','EXT_texture_filter_anisotropic','WEBGL_compressed_texture_s3tc','WEBGL_lose_context'];
     return {
       canvas: this,
       getExtension(name) {
         if (name === 'WEBGL_debug_renderer_info') return { UNMASKED_VENDOR_WEBGL: 0x9245, UNMASKED_RENDERER_WEBGL: 0x9246 };
+        // Other extensions: return a non-null stub if the profile lists
+        // them (so `getExtension(name) !== null` reads true on probe).
+        if (_wext.indexOf(name) !== -1) return {};
         return null;
       },
       getParameter(pname) {
+        // Profile-backed lookup first — keyed by numeric pname in hex or decimal.
+        if (_wp.hasOwnProperty(pname)) return _wp[pname];
+        if (_wp.hasOwnProperty(String(pname))) return _wp[String(pname)];
+        if (_wp.hasOwnProperty('0x' + pname.toString(16))) return _wp['0x' + pname.toString(16)];
+        // Identity params from profile top-level.
         if (pname === 0x9245) return _fp('gpuVendor');
         if (pname === 0x9246) return _fp('gpu');
-        if (pname === 0x1F01) return 'WebKit WebGL';  // GL_RENDERER
-        if (pname === 0x1F00) return 'WebKit';          // GL_VENDOR
-        if (pname === 0x1F02) return 'OpenGL ES 3.0 (ANGLE)'; // GL_VERSION
-        if (pname === 0x8B8C) return 'WebGL GLSL ES 3.00 (ANGLE)'; // GL_SHADING_LANGUAGE_VERSION
+        if (pname === 0x1F01) return (_realProfile && _realProfile.webgl_renderer) || 'WebKit WebGL';
+        if (pname === 0x1F00) return (_realProfile && _realProfile.webgl_vendor) || 'WebKit';
+        if (pname === 0x1F02) return (_realProfile && _realProfile.webgl_version) || 'OpenGL ES 3.0 (ANGLE)';
+        if (pname === 0x8B8C) return (_realProfile && _realProfile.webgl_shading_language_version) || 'WebGL GLSL ES 3.00 (ANGLE)';
+        // Sensible Chrome-typical defaults for common params if the profile
+        // doesn't carry them. These are the values real Chrome 145 on Mac
+        // returns; far better than 0 which is an obvious fingerprint tell.
+        if (pname === 0x0D33) return 16384; // MAX_TEXTURE_SIZE
+        if (pname === 0x851C) return 16384; // MAX_CUBE_MAP_TEXTURE_SIZE
+        if (pname === 0x0D3A) return [32767, 32767]; // MAX_VIEWPORT_DIMS
+        if (pname === 0x8872) return 16; // MAX_TEXTURE_IMAGE_UNITS
+        if (pname === 0x8B4D) return 16; // MAX_VERTEX_TEXTURE_IMAGE_UNITS
+        if (pname === 0x8B4C) return 16; // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+        if (pname === 0x851B) return 16; // MAX_VARYING_VECTORS (legacy name on some)
+        if (pname === 0x0D3B) return 8; // MAX_COLOR_ATTACHMENTS
+        if (pname === 0x8CD4) return 8;
+        if (pname === 0x0D02) return 8; // RED_BITS
+        if (pname === 0x0D53) return 8;
+        if (pname === 0x0D54) return 8;
+        if (pname === 0x0D55) return 8;
+        if (pname === 0x0D56) return 24; // DEPTH_BITS
+        if (pname === 0x0D57) return 8; // STENCIL_BITS
+        if (pname === 0x8073) return 2048; // MAX_3D_TEXTURE_SIZE
+        if (pname === 0x88FF) return 2048; // MAX_ARRAY_TEXTURE_LAYERS
+        if (pname === 0x84E8) return 4; // MAX_SAMPLES
+        if (pname === 0x846E) return [1, 1024]; // ALIASED_LINE_WIDTH_RANGE
+        if (pname === 0x846D) return [1, 1024]; // ALIASED_POINT_SIZE_RANGE
         return 0;
       },
-      getSupportedExtensions() { return ['WEBGL_debug_renderer_info','EXT_texture_filter_anisotropic','WEBGL_compressed_texture_s3tc','WEBGL_lose_context']; },
+      getSupportedExtensions() { return _wext.slice(); },
       getShaderPrecisionFormat() { return { rangeMin: 127, rangeMax: 127, precision: 23 }; },
       createBuffer() { return {}; }, createShader() { return {}; }, createProgram() { return {}; },
       shaderSource() {}, compileShader() {}, attachShader() {}, linkProgram() {},
