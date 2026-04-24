@@ -1217,7 +1217,21 @@ globalThis.navigator = {
       dispatchEvent() { return true; },
     };
   })(),
-  get webdriver() { return undefined; },
+  // C175: real Chrome on a non-automated page returns `false` (boolean),
+  // NOT `undefined`. Returning undefined is a Firefox signature and is
+  // detected instantly by SBSD/bot-management scripts.
+  get webdriver() { return false; },
+  // C175: navigator.geolocation must exist (every real Chrome exposes it).
+  // Return a stub whose methods never resolve — page can't use the mock
+  // but SBSD's existence check (`typeof navigator.geolocation !== 'undefined'`)
+  // succeeds and fingerprint branches accordingly.
+  get geolocation() {
+    return {
+      getCurrentPosition(_onOk, onErr) { if (onErr) setTimeout(() => onErr({ code: 1, message: 'denied' }), 0); },
+      watchPosition() { return 0; },
+      clearWatch() {},
+    };
+  },
   get pdfViewerEnabled() { return (_realProfile && typeof _realProfile.pdf_viewer_enabled === 'boolean') ? _realProfile.pdf_viewer_enabled : true; },
   get plugins() {
     const p = [
@@ -2204,8 +2218,22 @@ const _perfEntries = (() => {
     mk("https://www.newbalance.com/api/cart", "resource", 350, 88),
   ];
 })();
+// C175: Chrome's performance.now() has sub-millisecond precision clamped
+// to 100μs (0.1ms) for Spectre mitigation. Returning integer-only values
+// is a classic "fake timer" detection tell — SBSD's probe `performance.now()
+// % 1 === 0` will flag us as a bot and switch to a different fingerprint
+// code branch. Simulate Chrome's behavior: ms base + monotonic 0.1ms
+// sub-counter that resets when Date.now() advances.
+let _perfLastMs = 0, _perfSub = 0;
+function _perfNowNative() {
+  const ms = Date.now() - _perfOrigin;
+  if (ms !== _perfLastMs) { _perfLastMs = ms; _perfSub = 0; }
+  // Within the same ms, cycle .1→.2→…→.9 then cap.
+  if (_perfSub < 9) _perfSub++;
+  return ms + (_perfSub / 10);
+}
 globalThis.performance = globalThis.performance || {
-  now: () => Date.now() - _perfOrigin,
+  now: _perfNowNative,
   mark(){}, measure(){},
   clearMarks(){}, clearMeasures(){}, clearResourceTimings(){},
   getEntries(){ return _perfEntries.slice(); },
