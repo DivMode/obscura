@@ -123,29 +123,33 @@ function _fpNoise(x, y, channel) {
 // Fix: replace the eager `var _realProfile` with a lazy accessor. Every
 // downstream reference to `_realProfile` is really `_realProfile()`, so
 // the op is invoked per access (fast — it's a single env-var read in Rust).
-let _realProfileCache = undefined;  // tri-state: undefined=not loaded, null=no profile, object=loaded
+let _realProfileCache = null;  // cache is set only on SUCCESSFUL load.
 function _loadRealProfile() {
   try {
     const raw = Deno.core.ops.op_get_profile_json();
-    _realProfileCache = (raw && raw.length > 0) ? JSON.parse(raw) : null;
-    if (_realProfileCache) {
-      if (_realProfileCache.user_agent && !globalThis.__obscura_ua) {
-        globalThis.__obscura_ua = _realProfileCache.user_agent;
-      }
-      if (_realProfileCache.timezone_name && !globalThis.__obscura_tz) {
-        globalThis.__obscura_tz = _realProfileCache.timezone_name;
+    if (raw && raw.length > 0) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        _realProfileCache = parsed;  // cache ONLY on success
+        if (parsed.user_agent && !globalThis.__obscura_ua) {
+          globalThis.__obscura_ua = parsed.user_agent;
+        }
+        if (parsed.timezone_name && !globalThis.__obscura_tz) {
+          globalThis.__obscura_tz = parsed.timezone_name;
+        }
       }
     }
-  } catch (_e) { _realProfileCache = null; }
+  } catch (_e) {}
   return _realProfileCache;
 }
 // `_realProfile` keeps the original name so every existing reference
 // (`_realProfile && _realProfile.foo`, `_realProfile.user_agent`) works
-// unchanged. Implement it as a getter on globalThis that triggers the
-// lazy load and caches the result.
+// unchanged. Every access retries the load until cache is populated —
+// the first access happens during deno_core's snapshot build when env
+// isn't set; subsequent runtime accesses find env set and populate.
 Object.defineProperty(globalThis, '_realProfile', {
   get() {
-    if (_realProfileCache === undefined) _loadRealProfile();
+    if (!_realProfileCache) _loadRealProfile();
     return _realProfileCache;
   },
   configurable: true,
