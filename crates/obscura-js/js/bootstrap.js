@@ -1329,11 +1329,32 @@ globalThis.fetch = async (input, init = {}) => {
   } else if (input != null) {
     try { url = String(input); } catch (_) { url = ""; }
   }
-  if (url && !url.includes('://')) {
+  if (!url.includes('://')) {
+    // C163: resolve BOTH empty-string and relative URLs against page base.
+    // SBSD's legacy-body POST fires fetch(whatever_shape) where our extraction
+    // returns "" — Chrome resolves that against document.URL and hits the
+    // current page. For us "" would reach op_fetch_url which errors; instead
+    // resolve to a concrete base-URL-relative path.
     try {
       const base = _domParse("document_url") || "about:blank";
-      url = new URL(url, base).href;
+      url = new URL(url || "/", base).href;
     } catch(e) { /* keep as-is if URL resolution fails */ }
+  }
+  // Debug log when we had to fall through (empty input) — means SBSD's input
+  // shape still doesn't match any of the extractors above. Helps find the
+  // next missing input form without re-running CDP.
+  if (url === "" || url === "about:blank") {
+    try {
+      if (!globalThis.__obscura_fetch_unresolved) globalThis.__obscura_fetch_unresolved = [];
+      if (globalThis.__obscura_fetch_unresolved.length < 20) {
+        globalThis.__obscura_fetch_unresolved.push({
+          inputType: (typeof input) + (input && input.constructor ? ':' + input.constructor.name : ''),
+          inputKeys: input && typeof input === 'object' ? Object.keys(input).slice(0, 10).join(',') : '',
+          inputStr: (function(){ try { return String(input).slice(0, 100); } catch (_) { return '??'; } })(),
+          ts: Date.now(),
+        });
+      }
+    } catch (_) {}
   }
   const method = init.method || (input instanceof Request ? input.method : "GET");
   const hdrs = JSON.stringify(init.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : init.headers || {});
