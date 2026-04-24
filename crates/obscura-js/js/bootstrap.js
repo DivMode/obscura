@@ -2,6 +2,41 @@
 
 globalThis.__obscura_errors = [];
 
+// C160: capture EVERY Error constructor call (even if caught by user try/catch)
+// so we can see what SBSD's probe is actually hitting. Previously onerror only
+// fired for uncaught errors; SBSD swallows its own errors in try/catch blocks
+// and embeds truncated messages into the POST body.
+try {
+  const _origErrors = {
+    Error: globalThis.Error,
+    TypeError: globalThis.TypeError,
+    ReferenceError: globalThis.ReferenceError,
+    SyntaxError: globalThis.SyntaxError,
+    RangeError: globalThis.RangeError,
+  };
+  globalThis.__obscura_error_log = [];
+  for (const name of Object.keys(_origErrors)) {
+    const orig = _origErrors[name];
+    const wrapped = new Proxy(orig, {
+      construct(target, args) {
+        const e = Reflect.construct(target, args, target);
+        try {
+          if (globalThis.__obscura_error_log.length < 200) {
+            globalThis.__obscura_error_log.push({
+              type: name,
+              msg: String(args[0] || ''),
+              stack: String(e.stack || '').slice(0, 500),
+              ts: Date.now(),
+            });
+          }
+        } catch (_) {}
+        return e;
+      },
+    });
+    try { globalThis[name] = wrapped; } catch (_) {}
+  }
+} catch (_) {}
+
 globalThis.addEventListener = globalThis.addEventListener || function(){};
 globalThis.onunhandledrejection = function(e) { if (e?.preventDefault) e.preventDefault(); };
 
