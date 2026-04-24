@@ -2166,14 +2166,54 @@ globalThis.XMLSerializer = class XMLSerializer {
     return "";
   }
 };
+// C171 D6: populate performance.getEntriesByType with realistic Chrome
+// entries. SBSD probes `performance.getEntries*` to count resource loads;
+// an empty return makes Obscura look like a barebones runtime. Synthesize
+// a small pool of entries that resemble what a real New Balance page load
+// generates.
+const _perfOrigin = Date.now();
+const _perfEntries = (() => {
+  const mk = (name, type, start, dur) => ({
+    name, entryType: type,
+    startTime: start, duration: dur,
+    redirectStart: 0, redirectEnd: 0,
+    fetchStart: start, domainLookupStart: start, domainLookupEnd: start + 2,
+    connectStart: start + 2, secureConnectionStart: start + 5, connectEnd: start + 20,
+    requestStart: start + 21, responseStart: start + dur * 0.7,
+    responseEnd: start + dur, transferSize: 0, encodedBodySize: 0, decodedBodySize: 0,
+    initiatorType: type === "navigation" ? "navigation" : "link",
+    nextHopProtocol: "h2",
+    workerStart: 0, serverTiming: [],
+  });
+  return [
+    Object.assign(mk("https://www.newbalance.com/", "navigation", 0, 850), {
+      unloadEventStart: 0, unloadEventEnd: 0,
+      domInteractive: 520, domContentLoadedEventStart: 550, domContentLoadedEventEnd: 555,
+      domComplete: 820, loadEventStart: 830, loadEventEnd: 840, type: "navigate", redirectCount: 0,
+      transferSize: 816274, encodedBodySize: 816000, decodedBodySize: 816274,
+    }),
+    mk("https://www.newbalance.com/static/main.css", "resource", 120, 180),
+    mk("https://www.newbalance.com/static/app.js", "resource", 130, 210),
+    mk("https://www.newbalance.com/static/vendor.js", "resource", 135, 245),
+    mk("https://www.newbalance.com/images/logo.svg", "resource", 160, 40),
+    mk("https://www.newbalance.com/images/hero.jpg", "resource", 200, 320),
+    mk("https://connect.facebook.net/signals/config/1676136399271703", "resource", 280, 145),
+    mk("https://www.google-analytics.com/analytics.js", "resource", 290, 130),
+    mk("https://tr.snapchat.com/config/com/6d560ec6.js", "resource", 300, 140),
+    mk("https://www.newbalance.com/static/fonts/proxima-nova.woff2", "resource", 310, 55),
+    mk("https://www.newbalance.com/api/cart", "resource", 350, 88),
+  ];
+})();
 globalThis.performance = globalThis.performance || {
-  now: () => Date.now(),
+  now: () => Date.now() - _perfOrigin,
   mark(){}, measure(){},
   clearMarks(){}, clearMeasures(){}, clearResourceTimings(){},
-  getEntries(){return [];}, getEntriesByName(){return [];}, getEntriesByType(){return [];},
+  getEntries(){ return _perfEntries.slice(); },
+  getEntriesByName(name){ return _perfEntries.filter(e => e.name === name); },
+  getEntriesByType(type){ return _perfEntries.filter(e => e.entryType === type); },
   setResourceTimingBufferSize(){},
-  timeOrigin: 0,
-  timing: { navigationStart: 0, domContentLoadedEventEnd: 0, loadEventEnd: 0 },
+  timeOrigin: _perfOrigin,
+  timing: { navigationStart: _perfOrigin, domContentLoadedEventEnd: _perfOrigin + 555, loadEventEnd: _perfOrigin + 840 },
   navigation: { type: 0, redirectCount: 0 },
   memory: {
     jsHeapSizeLimit: 2172649472,
