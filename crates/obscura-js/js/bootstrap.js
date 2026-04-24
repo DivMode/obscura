@@ -1149,29 +1149,52 @@ globalThis.navigator = {
     m.namedItem = (name) => m.find(x => x.type === name) || null;
     return m;
   },
-  userAgentData: {
-    brands: [
+  userAgentData: (() => {
+    // Real Chrome 145 Sec-CH-UA brands format. The decoy brand is always
+    // shaped as "Not<punctuation>A<punctuation>Brand" with a random-seeming
+    // punctuation pattern that's stable per Chrome version. Using a fake
+    // pattern like "Not=A?Brand" instantly flags as non-Chrome.
+    const brands = [
+      {brand: "Not(A:Brand", version: "99"},
       {brand: "Google Chrome", version: "145"},
       {brand: "Chromium", version: "145"},
-      {brand: "Not=A?Brand", version: "24"},
-    ],
-    mobile: false,
-    platform: "Windows",
-    getHighEntropyValues(hints) {
-      return Promise.resolve({
-        architecture: "x86",
-        bitness: "64",
-        brands: [{brand:"Google Chrome",version:"145"},{brand:"Chromium",version:"145"},{brand:"Not=A?Brand",version:"24"}],
-        fullVersionList: [{brand:"Google Chrome",version:"145.0.0.0"},{brand:"Chromium",version:"145.0.0.0"},{brand:"Not=A?Brand",version:"24.0.0.0"}],
-        mobile: false,
-        model: "",
-        platform: "Linux",
-        platformVersion: "6.8.0",
-        uaFullVersion: "145.0.0.0",
-      });
-    },
-    toJSON() { return {brands:this.brands,mobile:this.mobile,platform:this.platform}; },
-  },
+    ];
+    // Platform coherence with navigator.platform / user_agent — if the
+    // profile says Mac, report "macOS" here. Mixing "Windows" here with
+    // a macOS UA is a red flag.
+    const uaPlatform = () => {
+      if (_realProfile) {
+        const os = _realProfile.os_family || "";
+        if (/mac|darwin/i.test(os) || /Mac/.test(_realProfile.user_agent || "")) return "macOS";
+        if (/win/i.test(os) || /Windows/.test(_realProfile.user_agent || "")) return "Windows";
+        if (/linux/i.test(os)) return "Linux";
+      }
+      return "Windows";
+    };
+    return {
+      brands,
+      mobile: false,
+      get platform() { return uaPlatform(); },
+      getHighEntropyValues(hints) {
+        const plat = uaPlatform();
+        const arch = plat === "macOS" ? "arm" : "x86";
+        const platVersion = plat === "macOS" ? "15.0.0" : plat === "Linux" ? "6.8.0" : "10.0.0";
+        return Promise.resolve({
+          architecture: arch,
+          bitness: "64",
+          brands,
+          fullVersionList: brands.map(b => ({brand: b.brand, version: b.version === "99" ? "99.0.0.0" : "145.0.7632.109"})),
+          mobile: false,
+          model: "",
+          platform: plat,
+          platformVersion: platVersion,
+          uaFullVersion: "145.0.7632.109",
+          wow64: false,
+        });
+      },
+      toJSON() { return {brands: this.brands, mobile: this.mobile, platform: this.platform}; },
+    };
+  })(),
   serviceWorker: { ready: Promise.resolve(), register(){return Promise.resolve();}, getRegistrations(){return Promise.resolve([]);}, controller: null },
   mediaDevices: {
     enumerateDevices() {
