@@ -69,9 +69,65 @@ function _fpNoise(x, y, channel) {
   return (_fpRand(x * 7919 + y * 6271 + channel * 8923) - 0.5) * 4;
 }
 
+// Load the real-Chrome profile the host binary wants to impersonate.
+// When set, _getFp() prefers these concrete values over the synthetic
+// _fpRand-based ones. This is the C153 fix for Obscura's SBSD Type B
+// fingerprint being half the size of real Chrome's — synthetic canvas /
+// webgl / audio / screen values don't match Akamai's legitimate-Chrome
+// patterns, so content validation rejects the POST. See op_get_profile_json
+// for how the host passes the profile in.
+var _realProfile = null;
+try {
+  const raw = Deno.core.ops.op_get_profile_json();
+  if (raw && raw.length > 0) {
+    _realProfile = JSON.parse(raw);
+  }
+} catch (_e) {}
+
 var _fpCache = null;
 function _getFp() {
   if (_fpCache) return _fpCache;
+  // Short-circuit to real profile values when the host has supplied one.
+  // Keeps the synthetic-fallback path intact for callers that don't set
+  // a profile (e.g. tests, exploratory work).
+  if (_realProfile) {
+    _fpCache = {
+      gpu: _realProfile.webgl_renderer || 'ANGLE (Apple, Apple M3 Max, OpenGL 4.1)',
+      gpuVendor: _realProfile.webgl_vendor || 'Google Inc. (Apple)',
+      audioBaseLatency: _realProfile.audio_base_latency || 0.005,
+      audioSampleRate: _realProfile.audio_sample_rate || 48000,
+      compThreshold: -24,
+      compKnee: 30,
+      compRatio: 12,
+      batteryLevel: _realProfile.battery_level ?? 0.85,
+      batteryCharging: _realProfile.battery_charging ?? true,
+      screen: [_realProfile.screen_width || 1440, _realProfile.screen_height || 900],
+      canvasFingerprint: _realProfile.canvas_to_data_url || 'data:image/png;base64,AA==',
+      canvasHash: _realProfile.canvas_hash || '',
+      audioFingerprint: _realProfile.audio_fingerprint || 0,
+      fonts: _realProfile.fonts || [],
+      plugins: _realProfile.plugins || [],
+      timezoneName: _realProfile.timezone_name || 'America/New_York',
+      timezoneOffset: _realProfile.timezone_offset ?? -300,
+      userAgent: _realProfile.user_agent || '',
+      platform: _realProfile.platform || 'MacIntel',
+      hardwareConcurrency: _realProfile.hardware_concurrency || 8,
+      deviceMemory: _realProfile.device_memory || 8,
+      maxTouchPoints: _realProfile.max_touch_points || 0,
+      innerWidth: _realProfile.inner_width || 1440,
+      innerHeight: _realProfile.inner_height || 900,
+      outerWidth: _realProfile.outer_width || 1440,
+      outerHeight: _realProfile.outer_height || 900,
+      availWidth: _realProfile.avail_width || 1440,
+      availHeight: _realProfile.avail_height || 877,
+      colorDepth: _realProfile.color_depth || 24,
+      pixelDepth: _realProfile.pixel_depth || 24,
+      devicePixelRatio: _realProfile.device_pixel_ratio || 2,
+      webglExtensions: _realProfile.webgl_extensions || [],
+      webglParams: _realProfile.webgl_params || {},
+    };
+    return _fpCache;
+  }
   const gpuPool = [
     'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
     'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)',

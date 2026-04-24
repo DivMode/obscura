@@ -654,6 +654,18 @@ async fn op_sleep_ms(ms: u32) {
     }
 }
 
+// Returns the real-Chrome browser profile JSON the host binary wants the JS
+// environment to impersonate. The host sets the profile via env var
+// OBSCURA_PROFILE_JSON (caller loads e.g. profile_db/*.json and sets it)
+// before constructing the runtime. Bootstrap.js reads this on startup and
+// swaps synthetic `_fpCache` values for real Chrome values — the fingerprint
+// gap that caused SBSD Type B POSTs to be half the size of real Chrome's.
+#[op2]
+#[string]
+fn op_get_profile_json(_state: &OpState) -> String {
+    std::env::var("OBSCURA_PROFILE_JSON").unwrap_or_default()
+}
+
 pub fn build_extension() -> Extension {
     Extension {
         name: "obscura_dom",
@@ -665,6 +677,7 @@ pub fn build_extension() -> Extension {
             op_set_cookie(),
             op_navigate(),
             op_sleep_ms(),
+            op_get_profile_json(),
         ]),
         ..Default::default()
     }
