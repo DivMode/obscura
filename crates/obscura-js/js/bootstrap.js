@@ -1308,7 +1308,27 @@ globalThis.__fetchInterceptEnabled = false;
 globalThis.__fetchInterceptCallback = null; // Set by CDP to handle paused requests
 
 globalThis.fetch = async (input, init = {}) => {
-  let url = typeof input === "string" ? input : (input instanceof Request ? input.url : input?.url || "");
+  // C162: extract URL from every input shape Chrome fetch() accepts:
+  //   fetch(string) / fetch(Request) / fetch(URL) / fetch(objWithToString).
+  // Previous logic only checked .url (Request) and fell through to "" for
+  // URL objects, which use .href. SBSD fires fetch(new URL("/rel", base))
+  // for its legacy-body endpoint; Obscura's fetch received "" → op_fetch_url
+  // rejected with "relative URL without a base" → SBSD's legacy-body POST
+  // was NEVER fired. This is the root cause of Obscura missing the
+  // `/cGaYLwcE1N7t/` endpoint hits that Chrome produces 2× per session.
+  let url = "";
+  if (typeof input === "string") {
+    url = input;
+  } else if (input instanceof Request) {
+    url = input.url || "";
+  } else if (input && typeof input.href === "string") {
+    // URL object or anything URL-like.
+    url = input.href;
+  } else if (input && typeof input.url === "string") {
+    url = input.url;
+  } else if (input != null) {
+    try { url = String(input); } catch (_) { url = ""; }
+  }
   if (url && !url.includes('://')) {
     try {
       const base = _domParse("document_url") || "about:blank";
