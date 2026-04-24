@@ -1176,7 +1176,17 @@ globalThis.navigator = {
   // So navigator.userAgent + platform must also claim Windows, else Akamai / any
   // other anti-bot can instantly reject on UA/WebGL mismatch. Overridable via
   // globalThis.__obscura_ua (the override must also be coherent with WebGL).
-  get userAgent() { return globalThis.__obscura_ua || (_realProfile && _realProfile.user_agent) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"; },
+  get userAgent() {
+    // Profile ALWAYS wins over __obscura_ua because the stealth-client
+    // sets __obscura_ua to a hardcoded Windows Chrome/145 UA AFTER
+    // bootstrap runs — if we read __obscura_ua first, the profile's real
+    // Chrome UA never reaches navigator.userAgent. Profile match keeps
+    // navigator.userAgent coherent with navigator.platform + screen
+    // metrics which ARE profile-backed.
+    const p = _realProfile;
+    if (p && p.user_agent) return p.user_agent;
+    return globalThis.__obscura_ua || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+  },
   get appVersion() { return this.userAgent.replace('Mozilla/', ''); },
   get language() { return (_realProfile && _realProfile.language) || "en-US"; },
   get languages() { return (_realProfile && _realProfile.languages) || ["en-US","en"]; },
