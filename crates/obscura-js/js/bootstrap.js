@@ -1539,9 +1539,29 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
     // unblocks the protocol-level path.
     if ((!url || url === "" || url === "about:blank") && this._method === "POST") {
       const bodyStr = (typeof body === "string") ? body : (body ? String(body) : "");
-      if (bodyStr.startsWith('{"body":"') && globalThis.__obscura_legacy_script_url) {
-        const legacyUrl = globalThis.__obscura_legacy_script_url;
-        url = legacyUrl + (legacyUrl.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now();
+      if (bodyStr.startsWith('{"body":"')) {
+        // Lazy URL discovery — if not cached, read DOM scripts at this moment.
+        let legacyUrl = globalThis.__obscura_legacy_script_url;
+        if (!legacyUrl) {
+          try {
+            const scripts = (typeof document !== "undefined" && document.getElementsByTagName)
+              ? document.getElementsByTagName('script')
+              : [];
+            for (let i = 0; i < scripts.length; i++) {
+              const src = (scripts[i].getAttribute && scripts[i].getAttribute('src')) || scripts[i].src || '';
+              if (src.indexOf('cGaYLwcE1N7t') !== -1 || src.indexOf('/cG') !== -1) {
+                legacyUrl = src.indexOf('://') === -1
+                  ? new URL(src, globalThis.location && globalThis.location.href || 'about:blank').href
+                  : src;
+                globalThis.__obscura_legacy_script_url = legacyUrl;
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+        if (legacyUrl) {
+          url = legacyUrl + (legacyUrl.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now();
+        }
       }
     }
     // C164: resolve empty + relative URLs against page base (same semantics
