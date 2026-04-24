@@ -1124,7 +1124,23 @@ globalThis.navigator = {
   get productSub() { return (_realProfile && _realProfile.product_sub) || "20030107"; },
   doNotTrack: null,
   get deviceMemory() { return (_realProfile && _realProfile.device_memory) || 8; },
-  connection: { effectiveType: "4g", rtt: 50, downlink: 10, saveData: false },
+  connection: (() => {
+    // NetworkInformation — `navigator.connection`. Read from the loaded
+    // Chrome profile where present so SBSD's effectiveType / downlink probes
+    // match the fingerprint the rest of navigator reports. Defaults tuned
+    // to a consumer broadband-over-mobile-proxy session.
+    const p = _realProfile || {};
+    return {
+      get effectiveType() { return p.connection_effective_type || "4g"; },
+      get rtt() { return p.connection_rtt ?? 50; },
+      get downlink() { return p.connection_downlink ?? 10; },
+      get saveData() { return p.connection_save_data ?? false; },
+      get type() { return p.connection_type || "unknown"; },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return true; },
+    };
+  })(),
   get webdriver() { return undefined; },
   get pdfViewerEnabled() { return (_realProfile && typeof _realProfile.pdf_viewer_enabled === 'boolean') ? _realProfile.pdf_viewer_enabled : true; },
   get plugins() {
