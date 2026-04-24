@@ -851,27 +851,6 @@ class Document extends Node {
   get title() { return _domParse("document_title") ?? ""; }
   set title(v) {}
   get URL() { return _domParse("document_url") ?? ""; }
-  // C167: document.currentScript returns the <script> tag currently executing.
-  // Obscura lacks a true implementation, so we return the best-known SBSD
-  // script tag (stashed by the legacy-URL-lookup logic) with a .src set to
-  // whatever was captured. Enough for SBSD's script-URL discovery probes.
-  get currentScript() {
-    try {
-      const src = globalThis.__obscura_legacy_script_url
-        || (function () {
-          const scripts = (typeof document !== "undefined" && document.getElementsByTagName)
-            ? document.getElementsByTagName('script') : [];
-          for (let i = 0; i < scripts.length; i++) {
-            const s = scripts[i].getAttribute && scripts[i].getAttribute('src') || scripts[i].src || '';
-            if (s.indexOf('cGaYLwcE1N7t') !== -1 || s.indexOf('g3e6') !== -1) return s;
-          }
-          return null;
-        })();
-      if (!src) return null;
-      const abs = src.indexOf('://') === -1 ? new URL(src, this.URL || 'about:blank').href : src;
-      return { src: abs, type: 'text/javascript', async: false, defer: false, crossOrigin: null, text: '', tagName: 'SCRIPT', nodeName: 'SCRIPT', nodeType: 1, getAttribute(n){ return n==='src'?abs:null; } };
-    } catch (_) { return null; }
-  }
   get documentURI() { return this.URL; }
   get location() { return globalThis.location; }
   set location(url) { Deno.core.ops.op_navigate(_resolveUrl(String(url)), 'GET', ''); }
