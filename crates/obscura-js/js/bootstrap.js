@@ -1323,6 +1323,18 @@ globalThis.fetch = async (input, init = {}) => {
   const raw = await Deno.core.ops.op_fetch_url(url, method, hdrs, body, pageOrigin, fetchMode);
   const parsed = JSON.parse(raw);
   if (parsed.blocked) {
+    // C161: log what's being blocked so we know what API SBSD's probe needs.
+    try {
+      if (!globalThis.__obscura_blocked_fetches) globalThis.__obscura_blocked_fetches = [];
+      if (globalThis.__obscura_blocked_fetches.length < 50) {
+        globalThis.__obscura_blocked_fetches.push({
+          url: String(url).slice(0, 300),
+          method: String(method || ''),
+          reason: String(parsed.error || ''),
+          ts: Date.now(),
+        });
+      }
+    } catch (_) {}
     const err = new TypeError('net::ERR_FAILED');
     err.name = 'AbortError';
     err.__aborted = true;
