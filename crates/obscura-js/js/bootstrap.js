@@ -335,6 +335,12 @@ globalThis.clearTimeout = (id) => {
   } catch (_) {}
 };
 
+// C195: REVERTED C194 — instrumenting Array.prototype.push violates
+// SKILL.md Hard Rule 6 ("NEVER monkey-patch Array.prototype.push —
+// proven in session 13 to break V8 execution"). The right tool for
+// "what does X evaluate to at runtime" is CDP Debugger via CloakBrowser
+// (scripts/cdp_bmak_inspect.mjs pattern), not in-process hacks.
+
 // setInterval must repeat. Prior implementation forwarded to setTimeout
 // once and returned, so every caller got a one-shot. A naive async-IIFE
 // loop (`(async () => { while(!cleared) { await _sleep(d); fn(); } })()`)
