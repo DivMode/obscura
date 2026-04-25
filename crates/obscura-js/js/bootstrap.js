@@ -2233,6 +2233,114 @@ globalThis.IntersectionObserver = class {
 };
 globalThis.PerformanceObserver = class { constructor(){} observe(){} disconnect(){} };
 
+// C202: SBSD reads `Performance*.prototype` for several entry-type subclasses
+// and was throwing TypeError("Cannot read properties of undefined (reading
+// 'prototype')") because Obscura only stubbed PerformanceObserver. Verified
+// from latest decrypted Obscura plaintext: `pevl: Cannot read properties...`
+// The throw breaks the body builder mid-way, skipping ~50 fields that come
+// after the perf-event probe. Stubs below are enough for `Foo.prototype`
+// existence checks; SBSD doesn't construct these directly via `new` (they're
+// exposed via `performance.getEntriesByType(...)` results which return
+// pre-constructed instances — covered by `performance.getEntries*` already).
+globalThis.PerformanceEntry = class PerformanceEntry {
+  constructor() { this.name = ""; this.entryType = ""; this.startTime = 0; this.duration = 0; }
+  toJSON() { return { name: this.name, entryType: this.entryType, startTime: this.startTime, duration: this.duration }; }
+};
+globalThis.PerformanceMark = class PerformanceMark extends PerformanceEntry { constructor() { super(); this.entryType = "mark"; } };
+globalThis.PerformanceMeasure = class PerformanceMeasure extends PerformanceEntry { constructor() { super(); this.entryType = "measure"; } };
+globalThis.PerformancePaintTiming = class PerformancePaintTiming extends PerformanceEntry { constructor() { super(); this.entryType = "paint"; } };
+globalThis.PerformanceNavigationTiming = class PerformanceNavigationTiming extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "navigation";
+    // resource-timing-y fields populated by getEntriesByType('navigation')
+    this.domainLookupStart = 0; this.domainLookupEnd = 0;
+    this.connectStart = 0; this.connectEnd = 0; this.secureConnectionStart = 0;
+    this.requestStart = 0; this.responseStart = 0; this.responseEnd = 0;
+    this.transferSize = 0; this.encodedBodySize = 0; this.decodedBodySize = 0;
+    this.domInteractive = 0; this.domContentLoadedEventStart = 0;
+    this.domContentLoadedEventEnd = 0; this.domComplete = 0;
+    this.loadEventStart = 0; this.loadEventEnd = 0;
+    this.type = "navigate"; this.redirectCount = 0;
+  }
+};
+globalThis.PerformanceResourceTiming = class PerformanceResourceTiming extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "resource";
+    this.initiatorType = ""; this.nextHopProtocol = "h2";
+    this.workerStart = 0; this.redirectStart = 0; this.redirectEnd = 0;
+    this.fetchStart = 0; this.domainLookupStart = 0; this.domainLookupEnd = 0;
+    this.connectStart = 0; this.connectEnd = 0; this.secureConnectionStart = 0;
+    this.requestStart = 0; this.responseStart = 0; this.responseEnd = 0;
+    this.transferSize = 0; this.encodedBodySize = 0; this.decodedBodySize = 0;
+    this.responseStatus = 200;
+  }
+};
+globalThis.PerformanceLongTaskTiming = class PerformanceLongTaskTiming extends PerformanceEntry {
+  constructor() { super(); this.entryType = "longtask"; this.attribution = []; }
+};
+globalThis.PerformanceEventTiming = class PerformanceEventTiming extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "event";
+    this.processingStart = 0; this.processingEnd = 0;
+    this.cancelable = false; this.target = null; this.interactionId = 0;
+  }
+};
+globalThis.PerformanceServerTiming = class PerformanceServerTiming {
+  constructor() { this.name = ""; this.duration = 0; this.description = ""; }
+  toJSON() { return { name: this.name, duration: this.duration, description: this.description }; }
+};
+globalThis.PerformanceElementTiming = class PerformanceElementTiming extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "element";
+    this.renderTime = 0; this.loadTime = 0; this.intersectionRect = null;
+    this.identifier = ""; this.naturalWidth = 0; this.naturalHeight = 0;
+    this.id = ""; this.element = null; this.url = "";
+  }
+};
+globalThis.PerformanceObserverEntryList = class PerformanceObserverEntryList {
+  constructor() {}
+  getEntries() { return []; }
+  getEntriesByType(_t) { return []; }
+  getEntriesByName(_n, _t) { return []; }
+};
+globalThis.LargestContentfulPaint = class LargestContentfulPaint extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "largest-contentful-paint";
+    this.renderTime = 0; this.loadTime = 0; this.size = 0;
+    this.id = ""; this.element = null; this.url = "";
+  }
+};
+globalThis.LayoutShift = class LayoutShift extends PerformanceEntry {
+  constructor() {
+    super();
+    this.entryType = "layout-shift";
+    this.value = 0; this.hadRecentInput = false; this.lastInputTime = 0;
+    this.sources = [];
+  }
+};
+globalThis.LayoutShiftAttribution = class LayoutShiftAttribution {
+  constructor() { this.node = null; this.previousRect = null; this.currentRect = null; }
+};
+globalThis.TaskAttributionTiming = class TaskAttributionTiming extends PerformanceEntry {
+  constructor() { super(); this.entryType = "taskattribution"; this.containerType = ""; this.containerSrc = ""; this.containerId = ""; this.containerName = ""; }
+};
+globalThis.EventCounts = class EventCounts {
+  constructor() {}
+  get size() { return 0; }
+  get(_t) { return 0; }
+  has(_t) { return false; }
+  keys() { return [][Symbol.iterator](); }
+  values() { return [][Symbol.iterator](); }
+  entries() { return [][Symbol.iterator](); }
+  forEach() {}
+  [Symbol.iterator]() { return [][Symbol.iterator](); }
+};
+
 globalThis.Event = class Event {
   constructor(t,o={}) { this.type=t;this.bubbles=!!o.bubbles;this.cancelable=!!o.cancelable;this.composed=!!o.composed;this.defaultPrevented=false;this.target=null;this.currentTarget=null;this.eventPhase=0;this.timeStamp=Date.now(); }
   get isTrusted() { return true; }
