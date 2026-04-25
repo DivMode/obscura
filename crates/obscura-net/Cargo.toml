@@ -16,5 +16,10 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 async-trait = "0.1"
-wreq = { version = "6.0.0-rc.28", optional = true, features = ["prefix-symbols"] }
+# wreq README notes `prefix-symbols` is Linux/Android only — enabling it on
+# macOS arm64 produces linker errors for `build_script_main_*` symbols
+# (boring2-sys emits prefixed symbols on Linux/Android but not darwin).
+# Keep it unfeatured so macOS builds; openssl-sys conflict isn't a concern
+# since obscura-net uses native-tls, not openssl.
+wreq = { version = "6.0.0-rc.28", optional = true }
 wreq-util = { version = "3.0.0-rc.10", optional = true }

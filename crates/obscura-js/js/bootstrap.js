@@ -292,47 +292,27 @@ const _sleep = (ms) => Deno.core.ops.op_sleep_ms(ms | 0);
 // Chrome fires a second sensor+legacy cycle after some interval;
 // in Obscura we only see one cycle. If SBSD scheduled a long timer
 // for the second cycle, we should see it here.
+// C198: REVERTED C189/C190 diagnostic instrumentation. The `new Error()`
+// stack captures inside setTimeout/clearTimeout wrappers polluted the
+// C160 Error-Proxy log with hundreds of entries per session and added
+// measurable latency to every timer call. Homepage solve regressed from
+// 412 KB → 2595 B challenge after C189/C190 landed; reverting restores
+// the C178-baseline behavior. Diagnostics should not stay in the hot path.
 globalThis.__obscura_long_timers = globalThis.__obscura_long_timers || [];
 globalThis.__obscura_long_fired = globalThis.__obscura_long_fired || [];
 globalThis.setTimeout = (fn, delay = 0, ...args) => {
   if (typeof fn !== "function") return ++_tid;
   const id = ++_tid;
-  const isLong = (delay | 0) >= 1000;
-  if (isLong) {
-    try {
-      globalThis.__obscura_long_timers.push({
-        id, delay: delay | 0, ts: Date.now(),
-        stack: (new Error()).stack ? (new Error()).stack.slice(0, 300) : "",
-      });
-    } catch (_) {}
-  }
   _sleep(delay | 0).then(() => {
-    if (_clearedTimers.has(id)) {
-      if (isLong) {
-        try { globalThis.__obscura_long_fired.push({ id, fired: false, reason: "cleared", ts: Date.now() }); } catch(_) {}
-      }
-      return;
-    }
-    if (isLong) {
-      try { globalThis.__obscura_long_fired.push({ id, fired: true, ts: Date.now() }); } catch(_) {}
-    }
+    if (_clearedTimers.has(id)) return;
     try { fn(...args); } catch(e) { console.error("Timer error:", e); }
   });
   return id;
 };
 
-// C190: log every clearTimeout to see if SBSD is canceling its own
-// 2nd-cycle timer. If id matches a long-delay timer in
-// __obscura_long_timers, that's evidence SBSD aborted the 2nd cycle.
 globalThis.__obscura_cleared_timers = globalThis.__obscura_cleared_timers || [];
 globalThis.clearTimeout = (id) => {
   _clearedTimers.add(id);
-  try {
-    globalThis.__obscura_cleared_timers.push({
-      id, ts: Date.now(),
-      stack: (new Error()).stack ? (new Error()).stack.slice(0, 200) : "",
-    });
-  } catch (_) {}
 };
 
 // C195: REVERTED C194 — instrumenting Array.prototype.push violates

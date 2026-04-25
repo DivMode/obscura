@@ -292,6 +292,16 @@ impl Page {
                 if let Some((url, code, resp)) = fetched.remove(&i) {
                     tracing::info!("Executing script ({} bytes): {}", code.len(), url);
                     self.record_network_event(&url, "GET", "Script", resp.status, &resp.headers, resp.body.len());
+                    // C151: when OBSCURA_DUMP_SCRIPTS is set, write every
+                    // downloaded script to /tmp for analysis. Useful for
+                    // reverse-engineering anti-bot sensor scripts.
+                    if std::env::var("OBSCURA_DUMP_SCRIPTS").is_ok() {
+                        let last = url.rsplit('/').next().unwrap_or("script");
+                        let safe: String = last.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(40).collect();
+                        let fname = format!("/tmp/obscura_script_{}B_{}.js", code.len(), safe);
+                        let _ = std::fs::write(&fname, &code);
+                        tracing::info!("Dumped script to {}", fname);
+                    }
                     if let Some(js) = &mut self.js {
                         if let Err(e) = js.execute_script_guarded(&url, &code) {
                             tracing::warn!("Script error ({}): {}", url, e);
@@ -593,7 +603,15 @@ impl Page {
                 _ => 0,
             };
 
-            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+            // Wait deadline is overridable via OBSCURA_WAIT_SECS (default 5s).
+            // SBSD / bot-management scripts POST sensor data for 10-20s before
+            // graduating the _abck cookie state; 5s cuts them off mid-loop.
+            let max_wait_secs: u64 = std::env::var("OBSCURA_WAIT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5);
+            let deadline = tokio::time::Instant::now()
+                + tokio::time::Duration::from_secs(max_wait_secs);
             let mut idle_since: Option<tokio::time::Instant> = None;
 
             loop {
@@ -836,6 +854,25 @@ impl Page {
         self.intercept_tx = Some(tx.clone());
         if let Some(js) = &self.js {
             js.set_intercept_tx(tx);
+        }
+    }
+
+    /// Drive the JS event loop for a fixed duration, regardless of network
+    /// idle state. Useful when an external interceptor (outside Obscura's
+    /// http_client) is handling requests — Obscura's NetworkIdle0 check
+    /// doesn't see those, so navigation returns while the script is still
+    /// working. Call this after navigation to let the script complete.
+    pub async fn drive_js_ms(&mut self, ms: u64) {
+        if self.js.is_none() { return; }
+        let start = tokio::time::Instant::now();
+        let deadline = start + tokio::time::Duration::from_millis(ms);
+        while tokio::time::Instant::now() < deadline {
+            if let Some(js) = &mut self.js {
+                let _ = tokio::time::timeout(
+                    tokio::time::Duration::from_millis(50),
+                    js.run_event_loop(),
+                ).await;
+            }
         }
     }
 }
