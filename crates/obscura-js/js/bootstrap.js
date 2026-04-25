@@ -293,10 +293,12 @@ const _sleep = (ms) => Deno.core.ops.op_sleep_ms(ms | 0);
 // in Obscura we only see one cycle. If SBSD scheduled a long timer
 // for the second cycle, we should see it here.
 globalThis.__obscura_long_timers = globalThis.__obscura_long_timers || [];
+globalThis.__obscura_long_fired = globalThis.__obscura_long_fired || [];
 globalThis.setTimeout = (fn, delay = 0, ...args) => {
   if (typeof fn !== "function") return ++_tid;
   const id = ++_tid;
-  if (delay | 0 >= 1000) {
+  const isLong = (delay | 0) >= 1000;
+  if (isLong) {
     try {
       globalThis.__obscura_long_timers.push({
         id, delay: delay | 0, ts: Date.now(),
@@ -305,13 +307,33 @@ globalThis.setTimeout = (fn, delay = 0, ...args) => {
     } catch (_) {}
   }
   _sleep(delay | 0).then(() => {
-    if (_clearedTimers.has(id)) return;
+    if (_clearedTimers.has(id)) {
+      if (isLong) {
+        try { globalThis.__obscura_long_fired.push({ id, fired: false, reason: "cleared", ts: Date.now() }); } catch(_) {}
+      }
+      return;
+    }
+    if (isLong) {
+      try { globalThis.__obscura_long_fired.push({ id, fired: true, ts: Date.now() }); } catch(_) {}
+    }
     try { fn(...args); } catch(e) { console.error("Timer error:", e); }
   });
   return id;
 };
 
-globalThis.clearTimeout = (id) => { _clearedTimers.add(id); };
+// C190: log every clearTimeout to see if SBSD is canceling its own
+// 2nd-cycle timer. If id matches a long-delay timer in
+// __obscura_long_timers, that's evidence SBSD aborted the 2nd cycle.
+globalThis.__obscura_cleared_timers = globalThis.__obscura_cleared_timers || [];
+globalThis.clearTimeout = (id) => {
+  _clearedTimers.add(id);
+  try {
+    globalThis.__obscura_cleared_timers.push({
+      id, ts: Date.now(),
+      stack: (new Error()).stack ? (new Error()).stack.slice(0, 200) : "",
+    });
+  } catch (_) {}
+};
 
 // setInterval must repeat. Prior implementation forwarded to setTimeout
 // once and returned, so every caller got a one-shot. A naive async-IIFE
