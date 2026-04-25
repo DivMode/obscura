@@ -1656,20 +1656,53 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
             const scripts = (typeof document !== "undefined" && document.getElementsByTagName)
               ? document.getElementsByTagName('script')
               : [];
+            // C186: the legacy SBSD endpoint pathname is per-deployment-random
+            // (homepage uses `cGaYLwcE1N7t`, /search/ uses `emdpQj/JMOzYRAg`,
+            // etc.). The stable pattern across all deployments is: it's a
+            // script tag with a `?v=<hex>` query parameter on the SAME host
+            // as the page. There's typically exactly ONE such script. Pick
+            // it instead of substring-matching on a one-deployment string.
+            let pageHost = '';
+            try { pageHost = new URL(globalThis.location.href).host; } catch (_) {}
             for (let i = 0; i < scripts.length; i++) {
               const src = (scripts[i].getAttribute && scripts[i].getAttribute('src')) || scripts[i].src || '';
-              if (src.indexOf('cGaYLwcE1N7t') !== -1 || src.indexOf('/cG') !== -1) {
-                legacyUrl = src.indexOf('://') === -1
-                  ? new URL(src, globalThis.location && globalThis.location.href || 'about:blank').href
-                  : src;
-                globalThis.__obscura_legacy_script_url = legacyUrl;
-                break;
+              if (!src) continue;
+              const hasVQuery = /\?v=[a-f0-9]/.test(src);
+              if (!hasVQuery) continue;
+              // Resolve relative → absolute and verify same-host.
+              const abs = src.indexOf('://') === -1
+                ? new URL(src, globalThis.location && globalThis.location.href || 'about:blank').href
+                : src;
+              try {
+                const u = new URL(abs);
+                if (pageHost && u.host !== pageHost) continue;
+              } catch (_) { continue; }
+              legacyUrl = abs;
+              globalThis.__obscura_legacy_script_url = legacyUrl;
+              break;
+            }
+            // Fallback to old heuristic if `?v=` lookup didn't match.
+            if (!legacyUrl) {
+              for (let i = 0; i < scripts.length; i++) {
+                const src = (scripts[i].getAttribute && scripts[i].getAttribute('src')) || scripts[i].src || '';
+                if (src.indexOf('cGaYLwcE1N7t') !== -1 || src.indexOf('/cG') !== -1) {
+                  legacyUrl = src.indexOf('://') === -1
+                    ? new URL(src, globalThis.location && globalThis.location.href || 'about:blank').href
+                    : src;
+                  globalThis.__obscura_legacy_script_url = legacyUrl;
+                  break;
+                }
               }
             }
           } catch (_) {}
         }
         if (legacyUrl) {
-          url = legacyUrl + (legacyUrl.indexOf('?') === -1 ? '?t=' : '&t=') + Date.now();
+          // C186: strip any existing query (e.g. `?v=hex` from the script
+          // tag) and replace with just `?t=Date.now()` to match real Chrome's
+          // legacy-body POST URL format.
+          const qi = legacyUrl.indexOf('?');
+          const base = qi === -1 ? legacyUrl : legacyUrl.slice(0, qi);
+          url = base + '?t=' + Date.now();
         }
       }
     }
