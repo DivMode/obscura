@@ -287,9 +287,23 @@ const _sleep = (ms) => Deno.core.ops.op_sleep_ms(ms | 0);
 // fingerprint POST, any setInterval polling, requestAnimationFrame chain)
 // were firing ~100x faster than Chrome's real cadence, breaking the Akamai
 // sensor protocol's Type A/B alternation.
+// C189: instrument long-delay setTimeout calls so we can see what
+// SBSD's scheduler is queueing for its second sensor cycle. Real
+// Chrome fires a second sensor+legacy cycle after some interval;
+// in Obscura we only see one cycle. If SBSD scheduled a long timer
+// for the second cycle, we should see it here.
+globalThis.__obscura_long_timers = globalThis.__obscura_long_timers || [];
 globalThis.setTimeout = (fn, delay = 0, ...args) => {
   if (typeof fn !== "function") return ++_tid;
   const id = ++_tid;
+  if (delay | 0 >= 1000) {
+    try {
+      globalThis.__obscura_long_timers.push({
+        id, delay: delay | 0, ts: Date.now(),
+        stack: (new Error()).stack ? (new Error()).stack.slice(0, 300) : "",
+      });
+    } catch (_) {}
+  }
   _sleep(delay | 0).then(() => {
     if (_clearedTimers.has(id)) return;
     try { fn(...args); } catch(e) { console.error("Timer error:", e); }
